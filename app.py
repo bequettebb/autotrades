@@ -12,19 +12,17 @@ from urllib.request import urlopen
 import streamlit as st
 
 
-ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = Path(__file__).resolve().parent
+ROOT = APP_DIR
 DEFAULT_DASHBOARD_API_URL = os.getenv("BOT_DASHBOARD_API_URL", "http://127.0.0.1:8765/api/status")
 DEFAULT_PUBLIC_STATUS_JSON_URL = os.getenv("BOT_STATUS_JSON_URL", "").strip()
+MANUAL_PORTFOLIO_PATH = APP_DIR / "paper_portfolio_manual.json"
 
 
 def _discover_default_reports_dir() -> Path:
     candidates = [
-        Path("/Users/a2485/Desktop/auto_trading_codexFInnHUB/reports"),
         ROOT / "reports",
-        ROOT / "auto_trading_codexFInnHUB" / "reports",
         Path.cwd() / "reports",
-        Path.cwd() / "auto_trading_codexFInnHUB" / "reports",
     ]
     for candidate in candidates:
         if candidate.exists():
@@ -108,7 +106,11 @@ def _resolve_public_status_payload(status_url: str | None = None) -> tuple[dict[
 
 
 def _resolve_bundled_snapshot() -> tuple[dict[str, Any], str]:
-    return _load_json_file(BUNDLED_STATUS_PATH), str(BUNDLED_STATUS_PATH)
+    candidates = [BUNDLED_STATUS_PATH, APP_DIR / "status.json"]
+    for candidate in candidates:
+        if candidate.exists():
+            return _load_json_file(candidate), str(candidate)
+    raise FileNotFoundError("No bundled snapshot found.")
 
 
 def _normalize_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -130,6 +132,180 @@ def _build_equity_rows(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
             continue
         rows.append({"timestamp": _parse_timestamp(timestamp), "equity": float(equity)})
     return rows
+
+
+def _extract_price_map(snapshot: dict[str, Any]) -> dict[str, float]:
+    prices: dict[str, float] = {}
+    for item in snapshot.get("evaluations", []):
+        symbol = item.get("symbol")
+        last_close = item.get("last_close")
+        if symbol and last_close is not None:
+            prices[str(symbol)] = float(last_close)
+    for item in snapshot.get("positions", []):
+        symbol = item.get("symbol")
+        last_price = item.get("last_price")
+        if symbol and last_price is not None and symbol not in prices:
+            prices[str(symbol)] = float(last_price)
+    return prices
+
+
+def _load_manual_portfolio(starting_cash: float) -> dict[str, Any]:
+    if not MANUAL_PORTFOLIO_PATH.exists():
+        return {
+            "starting_cash": float(starting_cash),
+            "cash": float(starting_cash),
+            "positions": {},
+            "orders": [],
+            "portfolio_history": [],
+        }
+    payload = _load_json_file(MANUAL_PORTFOLIO_PATH)
+    payload.setdefault("starting_cash", float(starting_cash))
+    payload.setdefault("cash", float(starting_cash))
+    payload.setdefault("positions", {})
+    payload.setdefault("orders", [])
+    payload.setdefault("portfolio_history", [])
+    return payload
+
+
+def _save_manual_portfolio(portfolio: dict[str, Any]) -> None:
+    MANUAL_PORTFOLIO_PATH.write_text(json.dumps(portfolio, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _append_history_point(portfolio: dict[str, Any], prices: dict[str, float]) -> None:
+    exposure = 0.0
+    for symbol, position in portfolio.get("positions", {}).items():
+        qty = float(position.get("qty", 0.0))
+        last_price = float(prices.get(symbol, position.get("avg_entry_price", 0.0)))
+        exposure += qty * last_price
+    equity = float(portfolio.get("cash", 0.0)) + exposure
+    portfolio.setdefault("portfolio_history", []).append(
+        {
+            "timestamp": datetime.now().astimezone().isoformat(),
+            "equity": round(equity, 2),
+            "cash": round(float(portfolio.get("cash", 0.0)), 2),
+            "exposure": round(exposure, 2),
+        }
+    )
+    portfolio["portfolio_history"] = portfolio["portfolio_history"][-300:]
+
+
+def _build_manual_snapshot(snapshot: dict[str, Any], portfolio: dict[str, Any], prices: dict[str, float]) -> dict[str, Any]:
+    manual_snapshot = dict(snapshot)
+    positions_rows: list[dict[str, Any]] = []
+    exposure = 0.0
+    for symbol, position in portfolio.get("positions", {}).items():
+        qty = float(position.get("qty", 0.0))
+        avg_entry_price = float(position.get("avg_entry_price", 0.0))
+        last_price = float(prices.get(symbol, avg_entry_price))
+        market_value = round(qty * last_price, 2)
+        exposure += market_value
+        positions_rows.append(
+            {
+                "symbol": symbol,
+                "qty": qty,
+                "avg_entry_price": avg_entry_price,
+                "last_price": last_price,
+                "market_value": market_value,
+                "unrealized_pnl": round((last_price - avg_entry_price) * qty, 2),
+                "opened_at": position.get("opened_at"),
+            }
+        )
+    equity = round(float(portfolio.get("cash", 0.0)) + exposure, 2)
+    daily_pnl = round(equity - float(portfolio.get("starting_cash", equity)), 2)
+    starting_cash = float(portfolio.get("starting_cash", equity)) or 1.0
+    manual_snapshot["trading_mode"] = "paper_manual"
+    manual_snapshot["positions"] = positions_rows
+    manual_snapshot["orders"] = portfolio.get("orders", [])[-50:]
+    manual_snapshot["portfolio_history"] = portfolio.get("portfolio_history", [])
+    manual_snapshot["account"] = {
+        "equity": equity,
+        "cash": round(float(portfolio.get("cash", 0.0)), 2),
+        "current_exposure": round(exposure, 2),
+        "trading_blocked": False,
+        "daily_pnl": daily_pnl,
+        "daily_pnl_pct": round((daily_pnl / starting_cash) * 100.0, 2),
+    }
+    notes = list(snapshot.get("notes", []))
+    notes.insert(0, "Manual paper trading is enabled in this Streamlit app.")
+    manual_snapshot["notes"] = notes
+    manual_snapshot["generated_at"] = datetime.now().astimezone().isoformat()
+    return manual_snapshot
+
+
+def _buy_position(portfolio: dict[str, Any], *, symbol: str, qty: float, price: float) -> str:
+    notional = round(qty * price, 2)
+    cash = float(portfolio.get("cash", 0.0))
+    if qty <= 0:
+        return "Buy quantity must be greater than zero."
+    if notional > cash:
+        return "Not enough cash for that buy order."
+    timestamp = datetime.now().astimezone().isoformat()
+    positions = portfolio.setdefault("positions", {})
+    existing = positions.get(symbol)
+    if existing:
+        existing_qty = float(existing.get("qty", 0.0))
+        existing_avg = float(existing.get("avg_entry_price", 0.0))
+        new_qty = existing_qty + qty
+        new_avg = ((existing_qty * existing_avg) + (qty * price)) / new_qty
+        existing["qty"] = new_qty
+        existing["avg_entry_price"] = round(new_avg, 4)
+    else:
+        positions[symbol] = {
+            "qty": qty,
+            "avg_entry_price": round(price, 4),
+            "opened_at": timestamp,
+        }
+    portfolio["cash"] = round(cash - notional, 2)
+    portfolio.setdefault("orders", []).append(
+        {
+            "submitted_at": timestamp,
+            "symbol": symbol,
+            "side": "buy",
+            "status": "filled",
+            "filled_qty": qty,
+            "filled_avg_price": round(price, 4),
+            "notional": notional,
+            "realized_pnl": None,
+        }
+    )
+    portfolio["orders"] = portfolio["orders"][-100:]
+    return f"Bought {qty:.4f} {symbol} at ${price:.2f}."
+
+
+def _sell_position(portfolio: dict[str, Any], *, symbol: str, qty: float, price: float) -> str:
+    positions = portfolio.setdefault("positions", {})
+    existing = positions.get(symbol)
+    if existing is None:
+        return f"No open position exists for {symbol}."
+    held_qty = float(existing.get("qty", 0.0))
+    if qty <= 0:
+        return "Sell quantity must be greater than zero."
+    if qty > held_qty:
+        return f"Cannot sell {qty:.4f}; only {held_qty:.4f} is available."
+    avg_entry_price = float(existing.get("avg_entry_price", 0.0))
+    notional = round(qty * price, 2)
+    realized_pnl = round((price - avg_entry_price) * qty, 2)
+    portfolio["cash"] = round(float(portfolio.get("cash", 0.0)) + notional, 2)
+    remaining_qty = held_qty - qty
+    if remaining_qty <= 1e-9:
+        positions.pop(symbol, None)
+    else:
+        existing["qty"] = remaining_qty
+    timestamp = datetime.now().astimezone().isoformat()
+    portfolio.setdefault("orders", []).append(
+        {
+            "submitted_at": timestamp,
+            "symbol": symbol,
+            "side": "sell",
+            "status": "filled",
+            "filled_qty": qty,
+            "filled_avg_price": round(price, 4),
+            "notional": notional,
+            "realized_pnl": realized_pnl,
+        }
+    )
+    portfolio["orders"] = portfolio["orders"][-100:]
+    return f"Sold {qty:.4f} {symbol} at ${price:.2f}."
 
 
 def _resolve_default_payload() -> tuple[dict[str, Any], str]:
@@ -247,6 +423,48 @@ def main() -> None:
     snapshot = payload.get("snapshot", {})
     bot = payload.get("bot", {})
     logs = payload.get("logs", {})
+    prices = _extract_price_map(snapshot)
+    starting_cash = float(snapshot.get("account", {}).get("equity", 10000.0) or 10000.0)
+    portfolio = _load_manual_portfolio(starting_cash)
+
+    st.sidebar.header("Paper Trading")
+    tradeable_symbols = sorted(prices) or sorted({str(item.get("symbol")) for item in snapshot.get("evaluations", []) if item.get("symbol")})
+    selected_symbol = st.sidebar.selectbox("Symbol", tradeable_symbols if tradeable_symbols else ["-"])
+    selected_price = float(prices.get(selected_symbol, 0.0)) if selected_symbol != "-" else 0.0
+    st.sidebar.caption(f"Last price: {_fmt_money(selected_price) if selected_price else '-'}")
+    default_qty = 1.0
+    if selected_symbol in portfolio.get("positions", {}) and selected_price > 0:
+        default_qty = float(portfolio["positions"][selected_symbol].get("qty", 1.0))
+    qty = st.sidebar.number_input("Quantity", min_value=0.0, value=default_qty, step=1.0)
+
+    if st.sidebar.button("Buy", use_container_width=True, disabled=(selected_symbol == "-" or selected_price <= 0)):
+        message = _buy_position(portfolio, symbol=selected_symbol, qty=float(qty), price=selected_price)
+        if message.startswith("Bought"):
+            st.sidebar.success(message)
+            _append_history_point(portfolio, prices)
+            _save_manual_portfolio(portfolio)
+        else:
+            st.sidebar.warning(message)
+    if st.sidebar.button("Sell", use_container_width=True, disabled=(selected_symbol == "-" or selected_price <= 0)):
+        message = _sell_position(portfolio, symbol=selected_symbol, qty=float(qty), price=selected_price)
+        if message.startswith("Sold"):
+            st.sidebar.success(message)
+            _append_history_point(portfolio, prices)
+            _save_manual_portfolio(portfolio)
+        else:
+            st.sidebar.warning(message)
+    if st.sidebar.button("Reset Portfolio", use_container_width=True):
+        portfolio = {
+            "starting_cash": starting_cash,
+            "cash": starting_cash,
+            "positions": {},
+            "orders": [],
+            "portfolio_history": [],
+        }
+        _save_manual_portfolio(portfolio)
+        st.sidebar.success("Manual paper portfolio was reset.")
+
+    snapshot = _build_manual_snapshot(snapshot, portfolio, prices)
     account = snapshot.get("account", {})
     positions = snapshot.get("positions", [])
     orders = snapshot.get("orders", [])
