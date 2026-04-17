@@ -1,0 +1,164 @@
+{
+  "generated_at": "2026-04-17T15:15:23.315933+09:00",
+  "trading_mode": "analysis",
+  "strategy_name": "leveraged_rotation",
+  "market_open": false,
+  "leader_symbol": "SOXL",
+  "leader_score": 0.0015542497412114108,
+  "poll_interval_seconds": 300,
+  "account": {
+    "equity": 10000.0,
+    "cash": 10000.0,
+    "current_exposure": 0.0,
+    "trading_blocked": true,
+    "daily_pnl": 0.0,
+    "daily_pnl_pct": 0.0
+  },
+  "positions": [],
+  "evaluations": [
+    {
+      "symbol": "SOXL",
+      "action": "buy",
+      "score": 0.0015542497412114108,
+      "score_label": "시그널 점수",
+      "entry_threshold": null,
+      "reason": "Symbol is the kind of trend-positive momentum candidate the strategy can rank.",
+      "momentum_return": 0.0010166045408337432,
+      "fast_ma": 88.61816,
+      "slow_ma": 88.51756,
+      "last_close": 88.62,
+      "signal_symbol": "SOXL",
+      "target_symbol": "SOXL",
+      "prob_bull": null,
+      "prob_bear": null,
+      "prob_neutral": null,
+      "metric_primary_label": "Momentum",
+      "metric_primary_value": 0.0010166045408337432,
+      "metric_secondary_label": "Fast",
+      "metric_secondary_value": 88.61816,
+      "metric_bias_label": "Slow",
+      "metric_bias_value": 88.51756,
+      "news_sentiment_label": null,
+      "news_sentiment_score": null,
+      "news_alignment": null,
+      "llm_reason": null
+    },
+    {
+      "symbol": "SOXS",
+      "action": "hold",
+      "score": -0.0007477799482032452,
+      "score_label": "시그널 점수",
+      "entry_threshold": null,
+      "reason": "No regime change was triggered for this symbol.",
+      "momentum_return": -1.4792899408422322e-05,
+      "fast_ma": 20.275579999999998,
+      "slow_ma": 20.28887,
+      "last_close": 20.2797,
+      "signal_symbol": "SOXS",
+      "target_symbol": "SOXS",
+      "prob_bull": null,
+      "prob_bear": null,
+      "prob_neutral": null,
+      "metric_primary_label": "Momentum",
+      "metric_primary_value": -1.4792899408422322e-05,
+      "metric_secondary_label": "Fast",
+      "metric_secondary_value": 20.275579999999998,
+      "metric_bias_label": "Slow",
+      "metric_bias_value": 20.28887,
+      "news_sentiment_label": null,
+      "news_sentiment_score": null,
+      "news_alignment": null,
+      "llm_reason": null
+    }
+  ],
+  "orders": [],
+  "notes": [
+    "Execution/trading is disabled in Finnhub-only mode.",
+    "Current leader is SOXL with score 0.00155."
+  ],
+  "portfolio_history": [],
+  "auto_selection": null,
+  "news_analysis": {
+    "generated_at": "2026-04-17T06:15:23.312392+00:00",
+    "status": "error",
+    "provider": "none",
+    "model": null,
+    "overall_sentiment": "neutral",
+    "confidence": null,
+    "summary": "이번 사이클에서는 Finnhub 뉴스를 불러오지 못해 뉴스 해설을 건너뛰었습니다.",
+    "leader_symbol": "SOXL",
+    "leader_explanation": null,
+    "article_count": 0,
+    "related_symbols": [
+      "AVGO",
+      "NVDA",
+      "MU",
+      "AMD",
+      "MRVL",
+      "AMAT",
+      "INTC",
+      "MPWR",
+      "KLAC",
+      "TER"
+    ],
+    "focus_holdings": [
+      {
+        "symbol": "AVGO",
+        "name": "BROADCOM INC",
+        "weight_pct": 8.67
+      },
+      {
+        "symbol": "NVDA",
+        "name": "NVIDIA CORP",
+        "weight_pct": 7.84
+      },
+      {
+        "symbol": "MU",
+        "name": "MICRON TECHNOLOGY INC",
+        "weight_pct": 7.73
+      },
+      {
+        "symbol": "AMD",
+        "name": "ADVANCED MICRO DEVICES INC",
+        "weight_pct": 6.72
+      },
+      {
+        "symbol": "MRVL",
+        "name": "MARVELL TECHNOLOGY INC",
+        "weight_pct": 5.75
+      },
+      {
+        "symbol": "AMAT",
+        "name": "APPLIED MATERIAL INC",
+        "weight_pct": 5.52
+      },
+      {
+        "symbol": "INTC",
+        "name": "INTEL CORPORATION CORP",
+        "weight_pct": 4.97
+      },
+      {
+        "symbol": "MPWR",
+        "name": "MONOLITHIC POWER SYSTEMS INC",
+        "weight_pct": 4.13
+      },
+      {
+        "symbol": "KLAC",
+        "name": "KLA CORP",
+        "weight_pct": 4.0
+      },
+      {
+        "symbol": "TER",
+        "name": "TERADYNE INC",
+        "weight_pct": 3.98
+      }
+    ],
+    "warnings": [
+      "Finnhub request failed with status 401: {\"error\":\"Invalid API key\"}",
+      "뉴스 소스: finnhub"
+    ],
+    "symbol_insights": [],
+    "article_briefs": [],
+    "articles": []
+  }
+}
